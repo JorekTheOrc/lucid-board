@@ -10,12 +10,13 @@ import { db } from '../db/db'
 import { MultipleChoiceShapeUtil, type MultipleChoiceShape } from './shapes/MultipleChoiceShape'
 import { FillInTheBlankShapeUtil } from './shapes/FillInTheBlankShape'
 import { RichTextShapeUtil } from './shapes/RichTextShape'
+import { AudioShapeUtil, AudioAssetUtil } from './shapes/AudioShape'
 import { ExerciseEditor } from './ExerciseEditor'
 import { AiBuilder } from './AiBuilder'
 import type { Item } from '../types/exercise'
 
 const BOARD_ID = 'default-board'
-const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil, RichTextShapeUtil]
+const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil, RichTextShapeUtil, AudioShapeUtil]
 
 function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher: (v: boolean) => void }) {
   const editor = useEditor()
@@ -23,6 +24,7 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   
   const [isAiOpen, setIsAiOpen] = useState(false)
   const [studentName, setStudentName] = useState('Student')
@@ -72,6 +74,17 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
               zipData[`assets/${asset.id}`] = new Uint8Array(await blob.arrayBuffer())
             }
           } catch (e) { console.warn(e) }
+        }
+        
+        // Экспорт аудио из Dexie
+        const allShapes = editor.store.allRecords().filter((r: any) => r.typeName === 'shape')
+        for (const shape of allShapes) {
+          if (shape.type === 'audio-player' && shape.props.assetId) {
+            const data = await db.assets.get(shape.props.assetId)
+            if (data && data.blob) {
+              zipData[`assets/${shape.props.assetId}`] = new Uint8Array(await data.blob.arrayBuffer())
+            }
+          }
         }
       }
 
@@ -174,6 +187,41 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
     }
   }
 
+  const handleAddAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const assetId = `asset:${crypto.randomUUID()}`
+    const center = editor.getViewportPageBounds().center
+
+    // Сохраняем файл напрямую в Dexie
+    await db.assets.put({ id: assetId, blob: new Blob([file], { type: file.type || 'audio/mpeg' }) })
+
+    editor.createAssets([{
+      id: assetId as any,
+      type: 'audio',
+      typeName: 'asset',
+      props: {
+        name: file.name,
+        src: '', 
+        w: 0,
+        h: 0,
+        mimeType: file.type,
+        isAnimated: false
+      },
+      meta: {}
+    }])
+
+    editor.createShape({
+      type: 'audio-player',
+      x: center.x - 225,
+      y: center.y - 50,
+      props: { w: 450, h: 100, assetId, transcript: '' }
+    })
+    
+    if (audioInputRef.current) audioInputRef.current.value = ''
+  }
+
   const addMultiChoice = () => {
     const center = editor.getViewportPageBounds().center
     const demoItems: Item[] = [{ id: crypto.randomUUID(), prompt: 'She ___ to school.', options: [{ id: '1', text: 'go' }, { id: '2', text: 'goes' }], answer: ['goes'] }]
@@ -214,6 +262,8 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
             <button onClick={() => imageInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#ec4899', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Image</button>
             <button onClick={() => pdfInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ PDF</button>
+            <button onClick={() => audioInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Audio</button>
+            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAddAudio} style={{ display: 'none' }} />
             <input type="file" accept="image/*" ref={imageInputRef} onChange={handleAddImage} style={{ display: 'none' }} />
             <input type="file" accept="application/pdf" ref={pdfInputRef} onChange={handleAddPdf} style={{ display: 'none' }} />
 
@@ -266,7 +316,7 @@ export function Board() {
 
   return (
     <div style={{ position: 'fixed', inset: 0 }}>
-      <Tldraw onMount={handleMount} shapeUtils={customShapeUtils} hideUi={!isTeacher}>
+      <Tldraw onMount={handleMount} shapeUtils={customShapeUtils} assetUtils={[AudioAssetUtil]} hideUi={!isTeacher}>
         <BoardUI isTeacher={isTeacher} setIsTeacher={setIsTeacher} />
       </Tldraw>
     </div>
