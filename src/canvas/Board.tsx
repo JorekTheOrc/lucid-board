@@ -23,10 +23,18 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
-  const [isAiOpen, setIsAiOpen] = useState(false)
   
-  // Ищем ТОЛЬКО упражнения (без rich-text)
-  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank') as MultipleChoiceShape | any | undefined
+  const [isAiOpen, setIsAiOpen] = useState(false)
+  const [studentName, setStudentName] = useState('Student')
+  const [toast, setToast] = useState<{ msg: string, type: 'success' | 'error' } | null>(null)
+  
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3000)
+  }
+
+  // Ищем только упражнения для боковой панели (rich-text редактируется на холсте)
+  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank')
 
   useEffect(() => {
     editor.updateInstanceState({ isReadonly: !isTeacher })
@@ -34,24 +42,37 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
 
   const handleExport = async (isProgress = false) => {
     try {
-      const snapshot = getSnapshot(editor.store)
-      const jsonStr = JSON.stringify(snapshot, null, 2)
-      
-      const zipData: Record<string, Uint8Array> = {
-        'board.json': strToU8(jsonStr)
-      }
+      const zipData: Record<string, Uint8Array> = {}
 
-      const assets = editor.store.allRecords().filter((r: any) => r.typeName === 'asset')
-      for (const asset of assets) {
-        try {
-          const assetRecord = editor.getAsset(asset.id) as any
-          if (assetRecord && assetRecord.props && assetRecord.props.src) {
-            const response = await fetch(assetRecord.props.src)
-            const blob = await response.blob()
-            const arrayBuffer = await blob.arrayBuffer()
-            zipData[`assets/${asset.id}`] = new Uint8Array(arrayBuffer)
+      if (isProgress) {
+        const allShapes = editor.store.allRecords().filter((r: any) => r.typeName === 'shape')
+        const results: any = {}
+
+        allShapes.forEach((shape: any) => {
+          if (shape.type === 'multiple-choice') {
+            results[shape.id] = { selectedIndices: shape.props.selectedIndices, confirmedIndices: shape.props.confirmedIndices }
+          } else if (shape.type === 'fill-in-the-blank') {
+            results[shape.id] = { userInputs: shape.props.userInputs, confirmedIndices: shape.props.confirmedIndices }
           }
-        } catch (e) { console.warn(e) }
+        })
+
+        const progressData = { studentName, timestamp: Date.now(), results }
+        zipData['progress.json'] = strToU8(JSON.stringify(progressData, null, 2))
+      } else {
+        const snapshot = getSnapshot(editor.store)
+        zipData['board.json'] = strToU8(JSON.stringify(snapshot, null, 2))
+
+        const assets = editor.store.allRecords().filter((r: any) => r.typeName === 'asset')
+        for (const asset of assets) {
+          try {
+            const assetRecord = editor.getAsset(asset.id) as any
+            if (assetRecord && assetRecord.props && assetRecord.props.src) {
+              const response = await fetch(assetRecord.props.src)
+              const blob = await response.blob()
+              zipData[`assets/${asset.id}`] = new Uint8Array(await blob.arrayBuffer())
+            }
+          } catch (e) { console.warn(e) }
+        }
       }
 
       const zipped = zipSync(zipData, { level: 9 })
@@ -59,12 +80,13 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = isProgress ? `progress-${Date.now()}.zip` : `lucid-board-template.zip`
+      a.download = isProgress ? `progress-${studentName}-${Date.now()}.zip` : `lucid-board-template.zip`
       a.click()
       URL.revokeObjectURL(url)
+      showToast(isProgress ? 'Progress exported!' : 'Template exported!', 'success')
     } catch (err) {
       console.error(err)
-      alert("Ошибка при экспорте ZIP")
+      showToast("Export failed", 'error')
     }
   }
 
@@ -74,19 +96,43 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
     try {
       const arrayBuffer = await file.arrayBuffer()
       const unzipped = unzipSync(new Uint8Array(arrayBuffer))
-      if (!unzipped['board.json']) throw new Error("Нет board.json")
-      for (const path in unzipped) {
-        if (path.startsWith('assets/')) {
-          const assetId = path.replace('assets/', '')
-          const blob = new Blob([unzipped[path]])
-          try { if (editor.assets && typeof editor.assets.put === 'function') await editor.assets.put(assetId, blob) } catch (e) {}
-        }
+      
+      if (unzipped['progress.json']) {
+        const progressStr = strFromU8(unzipped['progress.json'])
+        const progressData = JSON.parse(progressStr)
+        
+        Object.keys(progressData.results).forEach(shapeId => {
+          const res = progressData.results[shapeId]
+          const shape = editor.getShape(shapeId as any) as any
+          if (shape) {
+            const updates: any = { ...shape.props }
+            if (res.selectedIndices) updates.selectedIndices = res.selectedIndices
+            if (res.userInputs) updates.userInputs = res.userInputs
+            if (res.confirmedIndices) updates.confirmedIndices = res.confirmedIndices
+            editor.updateShape({ id: shape.id, type: shape.type, props: updates })
+          }
+        })
+        showToast(`Loaded progress for ${progressData.studentName}!`, 'success')
+        return
       }
-      const jsonStr = strFromU8(unzipped['board.json'])
-      loadSnapshot(editor.store, JSON.parse(jsonStr))
+
+      if (unzipped['board.json']) {
+        for (const path in unzipped) {
+          if (path.startsWith('assets/')) {
+            const assetId = path.replace('assets/', '')
+            const blob = new Blob([unzipped[path]])
+            try { if (editor.assets && typeof editor.assets.put === 'function') await editor.assets.put(assetId, blob) } catch (e) {}
+          }
+        }
+        const jsonStr = strFromU8(unzipped['board.json'])
+        loadSnapshot(editor.store, JSON.parse(jsonStr))
+        showToast('Template loaded!', 'success')
+        return
+      }
+      throw new Error("Unknown ZIP structure")
     } catch (err) {
       console.error(err)
-      alert("Ошибка импорта")
+      showToast("Import failed: Invalid ZIP", 'error')
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
@@ -122,7 +168,7 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
       }
     } catch (err) {
       console.error(err)
-      alert('Ошибка при чтении PDF')
+      showToast('PDF read error', 'error')
     } finally {
       if (pdfInputRef.current) pdfInputRef.current.value = ''
     }
@@ -147,6 +193,12 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
 
   return (
     <>
+      {toast && (
+        <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', padding: '10px 20px', borderRadius: '8px', color: 'white', fontWeight: 'bold', backgroundColor: toast.type === 'success' ? '#10b981' : '#ef4444', boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 3000 }}>
+          {toast.msg}
+        </div>
+      )}
+
       <div style={{ position: 'absolute', top: 8, left: isTeacher ? 340 : 16, zIndex: 1000, display: 'flex', alignItems: 'center', height: 40, gap: '8px', flexWrap: 'wrap' }}>
         <button onClick={() => setIsTeacher(!isTeacher)} style={{ padding: '0 12px', height: '100%', backgroundColor: isTeacher ? '#f59e0b' : '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>
           {isTeacher ? '👨‍🏫 Teacher Mode' : '🎓 Student Mode'}
@@ -176,11 +228,12 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
         ) : (
           <>
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
-            <button onClick={() => handleExport(true)} style={{ padding: '0 16px', height: '100%', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Export My Progress (ZIP)</button>
+            <input type="text" value={studentName} onChange={e => setStudentName(e.target.value)} placeholder="Your Name" style={{ padding: '0 10px', height: '100%', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', fontSize: '12px' }} />
+            <button onClick={() => handleExport(true)} style={{ padding: '0 16px', height: '100%', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Export My Progress</button>
           </>
         )}
       </div>
-      {isTeacher && exerciseShape && <ExerciseEditor editor={editor} shape={exerciseShape} />}
+      {isTeacher && exerciseShape && <ExerciseEditor editor={editor} shape={exerciseShape as any} />}
       {isAiOpen && <AiBuilder editor={editor} onClose={() => setIsAiOpen(false)} />}
     </>
   )

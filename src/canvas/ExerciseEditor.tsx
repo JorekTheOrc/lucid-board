@@ -10,7 +10,9 @@ interface Props {
 }
 
 export function ExerciseEditor({ editor, shape }: Props) {
-  // Защита от старых карточек без массива items
+  // Защита от пустых данных
+  if (!shape || !shape.props) return null;
+
   const items = shape.props.items || []
   const currentIndex = (shape.props as any).currentIndex || 0
   const item = items[currentIndex] || { id: '1', prompt: '', options: [], answer: [] }
@@ -47,13 +49,40 @@ export function ExerciseEditor({ editor, shape }: Props) {
     editor.updateShape({ id: shape.id, type: shape.type, props: newProps } as any)
   }
 
+  const resetProgress = () => {
+    if (shape.type === 'multiple-choice') {
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        props: {
+          ...shape.props,
+          selectedIndices: items.map(() => null),
+          confirmedIndices: items.map(() => false)
+        }
+      } as any)
+    } else if (shape.type === 'fill-in-the-blank') {
+      editor.updateShape({
+        id: shape.id,
+        type: shape.type,
+        props: {
+          ...shape.props,
+          userInputs: items.map(() => ''),
+          confirmedIndices: items.map(() => false)
+        }
+      } as any)
+    }
+  }
+
   const options = item.options || []
 
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, width: '320px', height: '100%', backgroundColor: 'white', boxShadow: '-4px 0 15px rgba(0,0,0,0.1)', zIndex: 1000, padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 'bold' }}>Edit {shape.type === 'multiple-choice' ? 'Multiple Choice' : 'Fill Blank'}</h2>
-        <button onClick={removeQuestion} style={{ padding: '4px 8px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Delete Q</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={resetProgress} title="Reset student answers" style={{ padding: '4px 8px', backgroundColor: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Reset</button>
+          <button onClick={removeQuestion} title="Delete question" style={{ padding: '4px 8px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Del Q</button>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px' }}>
