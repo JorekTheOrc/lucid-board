@@ -3,19 +3,22 @@ import { Tldraw, getSnapshot, loadSnapshot, useValue, useEditor, type Editor } f
 import 'tldraw/tldraw.css'
 import { db } from '../db/db'
 import { MultipleChoiceShapeUtil, type MultipleChoiceShape } from './shapes/MultipleChoiceShape'
-import { FillInTheBlankShapeUtil, type FillInTheBlankShape } from './shapes/FillInTheBlankShape'
+import { FillInTheBlankShapeUtil } from './shapes/FillInTheBlankShape'
+import { RichTextShapeUtil } from './shapes/RichTextShape'
 import { ExerciseEditor } from './ExerciseEditor'
+import { AiBuilder } from './AiBuilder'
 import type { Item } from '../types/exercise'
 
 const BOARD_ID = 'default-board'
-const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil]
+const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil, RichTextShapeUtil]
 
 function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher: (v: boolean) => void }) {
   const editor = useEditor()
   const selectedShapes = useValue('selected', () => editor.getSelectedShapes(), [editor])
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isAiOpen, setIsAiOpen] = useState(false)
   
-  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank') as MultipleChoiceShape | FillInTheBlankShape | undefined
+  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank') as MultipleChoiceShape | any | undefined
 
   useEffect(() => {
     editor.updateInstanceState({ isReadonly: !isTeacher })
@@ -46,20 +49,19 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
 
   const addMultiChoice = () => {
     const center = editor.getViewportPageBounds().center
-    const demoItems: Item[] = [
-      { id: crypto.randomUUID(), prompt: 'She ___ to school.', options: [{ id: '1', text: 'go' }, { id: '2', text: 'goes' }], answer: ['goes'] },
-      { id: crypto.randomUUID(), prompt: 'They ___ playing.', options: [{ id: '1', text: 'is' }, { id: '2', text: 'are' }], answer: ['are'] },
-    ]
-    editor.createShape({ type: 'multiple-choice', x: center.x - 250, y: center.y - 250, props: { w: 500, h: 500, items: demoItems, selectedIndices: [null, null], confirmedIndices: [false, false], currentIndex: 0 } })
+    const demoItems: Item[] = [{ id: crypto.randomUUID(), prompt: 'She ___ to school.', options: [{ id: '1', text: 'go' }, { id: '2', text: 'goes' }], answer: ['goes'] }]
+    editor.createShape({ type: 'multiple-choice', x: center.x - 250, y: center.y - 250, props: { w: 500, h: 500, items: demoItems, selectedIndices: [null], confirmedIndices: [false], currentIndex: 0 } })
   }
 
   const addFillBlank = () => {
     const center = editor.getViewportPageBounds().center
-    const demoItems: Item[] = [
-      { id: crypto.randomUUID(), prompt: 'She ___ to school.', answer: ['goes'] },
-      { id: crypto.randomUUID(), prompt: 'They ___ playing.', answer: ['are'] },
-    ]
-    editor.createShape({ type: 'fill-in-the-blank', x: center.x - 250, y: center.y - 250, props: { w: 500, h: 300, items: demoItems, userInputs: ['', ''], confirmedIndices: [false, false], currentIndex: 0 } })
+    const demoItems: Item[] = [{ id: crypto.randomUUID(), prompt: 'She ___ to school.', answer: ['goes'] }]
+    editor.createShape({ type: 'fill-in-the-blank', x: center.x - 250, y: center.y - 250, props: { w: 500, h: 300, items: demoItems, userInputs: [''], confirmedIndices: [false], currentIndex: 0 } })
+  }
+
+  const addRichText = () => {
+    const center = editor.getViewportPageBounds().center
+    editor.createShape({ type: 'rich-text', x: center.x - 250, y: center.y - 250, props: { w: 450, h: 300, content: '<h2>Reading Text</h2><p>Paste your text here...</p>' } })
   }
 
   return (
@@ -74,9 +76,12 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
             <button onClick={addMultiChoice} style={{ padding: '0 12px', height: '100%', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Multi Choice</button>
             <button onClick={addFillBlank} style={{ padding: '0 12px', height: '100%', backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Fill Blank</button>
+            <button onClick={addRichText} style={{ padding: '0 12px', height: '100%', backgroundColor: '#14b8a6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Reading Text</button>
+            
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
-            <button onClick={() => handleExport(false)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Save</button>
-            <button onClick={() => fileInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Load</button>
+            <button onClick={() => setIsAiOpen(true)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>✨ AI Import</button>
+            <button onClick={() => handleExport(false)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Save</button>
+            <button onClick={() => fileInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#475569', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Load</button>
             <input type="file" accept=".json" ref={fileInputRef} onChange={handleImport} style={{ display: 'none' }} />
           </>
         ) : (
@@ -87,6 +92,7 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
         )}
       </div>
       {isTeacher && exerciseShape && <ExerciseEditor editor={editor} shape={exerciseShape} />}
+      {isAiOpen && <AiBuilder editor={editor} onClose={() => setIsAiOpen(false)} />}
     </>
   )
 }
