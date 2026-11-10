@@ -10,8 +10,9 @@ interface Props {
 }
 
 export function ExerciseEditor({ editor, shape }: Props) {
-  const { items } = shape.props
-  const currentIndex = shape.props.currentIndex || 0
+  // Защита от старых карточек без массива items
+  const items = shape.props.items || []
+  const currentIndex = (shape.props as any).currentIndex || 0
   const item = items[currentIndex] || { id: '1', prompt: '', options: [], answer: [] }
 
   const updateItem = (updates: Partial<Item>) => {
