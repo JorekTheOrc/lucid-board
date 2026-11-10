@@ -11,12 +11,13 @@ import { MultipleChoiceShapeUtil, type MultipleChoiceShape } from './shapes/Mult
 import { FillInTheBlankShapeUtil } from './shapes/FillInTheBlankShape'
 import { RichTextShapeUtil } from './shapes/RichTextShape'
 import { AudioShapeUtil, AudioAssetUtil } from './shapes/AudioShape'
+import { MatchingShapeUtil } from './shapes/MatchingShape'
 import { ExerciseEditor } from './ExerciseEditor'
 import { AiBuilder } from './AiBuilder'
 import type { Item } from '../types/exercise'
 
 const BOARD_ID = 'default-board'
-const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil, RichTextShapeUtil, AudioShapeUtil]
+const customShapeUtils = [MultipleChoiceShapeUtil, FillInTheBlankShapeUtil, RichTextShapeUtil, AudioShapeUtil, MatchingShapeUtil]
 
 function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher: (v: boolean) => void }) {
   const editor = useEditor()
@@ -35,8 +36,7 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
     setTimeout(() => setToast(null), 3000)
   }
 
-  // Ищем только упражнения для боковой панели (rich-text редактируется на холсте)
-  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank')
+  const exerciseShape = selectedShapes.find(s => s.type === 'multiple-choice' || s.type === 'fill-in-the-blank' || s.type === 'matching')
 
   useEffect(() => {
     editor.updateInstanceState({ isReadonly: !isTeacher })
@@ -55,6 +55,8 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
             results[shape.id] = { selectedIndices: shape.props.selectedIndices, confirmedIndices: shape.props.confirmedIndices }
           } else if (shape.type === 'fill-in-the-blank') {
             results[shape.id] = { userInputs: shape.props.userInputs, confirmedIndices: shape.props.confirmedIndices }
+          } else if (shape.type === 'matching') {
+            results[shape.id] = { matchedPairs: shape.props.matchedPairs }
           }
         })
 
@@ -76,7 +78,6 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
           } catch (e) { console.warn(e) }
         }
         
-        // Экспорт аудио из Dexie
         const allShapes = editor.store.allRecords().filter((r: any) => r.typeName === 'shape')
         for (const shape of allShapes) {
           if (shape.type === 'audio-player' && shape.props.assetId) {
@@ -122,6 +123,7 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
             if (res.selectedIndices) updates.selectedIndices = res.selectedIndices
             if (res.userInputs) updates.userInputs = res.userInputs
             if (res.confirmedIndices) updates.confirmedIndices = res.confirmedIndices
+            if (res.matchedPairs) updates.matchedPairs = res.matchedPairs
             editor.updateShape({ id: shape.id, type: shape.type, props: updates })
           }
         })
@@ -133,8 +135,8 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
         for (const path in unzipped) {
           if (path.startsWith('assets/')) {
             const assetId = path.replace('assets/', '')
-            const blob = new Blob([unzipped[path]])
-            try { if (editor.assets && typeof editor.assets.put === 'function') await editor.assets.put(assetId, blob) } catch (e) {}
+            const blob = new Blob([unzipped[path]], { type: 'audio/mpeg' })
+            await db.assets.put({ id: assetId, blob })
           }
         }
         const jsonStr = strFromU8(unzipped['board.json'])
@@ -190,35 +192,17 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
   const handleAddAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     const assetId = `asset:${crypto.randomUUID()}`
     const center = editor.getViewportPageBounds().center
 
-    // Сохраняем файл напрямую в Dexie
     await db.assets.put({ id: assetId, blob: new Blob([file], { type: file.type || 'audio/mpeg' }) })
 
     editor.createAssets([{
-      id: assetId as any,
-      type: 'audio',
-      typeName: 'asset',
-      props: {
-        name: file.name,
-        src: '', 
-        w: 0,
-        h: 0,
-        mimeType: file.type,
-        isAnimated: false
-      },
-      meta: {}
+      id: assetId as any, type: 'audio', typeName: 'asset',
+      props: { name: file.name, src: '', w: 0, h: 0, mimeType: file.type, isAnimated: false }, meta: {}
     }])
 
-    editor.createShape({
-      type: 'audio-player',
-      x: center.x - 225,
-      y: center.y - 50,
-      props: { w: 450, h: 100, assetId, transcript: '' }
-    })
-    
+    editor.createShape({ type: 'audio-player', x: center.x - 225, y: center.y - 50, props: { w: 450, h: 100, assetId, transcript: '' } })
     if (audioInputRef.current) audioInputRef.current.value = ''
   }
 
@@ -239,6 +223,14 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
     editor.createShape({ type: 'rich-text', x: center.x - 250, y: center.y - 250, props: { w: 450, h: 300, content: '<h2>Reading Text</h2><p>Paste your text here...</p>' } })
   }
 
+  const addMatching = () => {
+    const center = editor.getViewportPageBounds().center
+    const pairs = [{ left: 'Apple', right: 'Яблоко' }, { left: 'Dog', right: 'Собака' }]
+    const shuffledRight = pairs.map(p => p.right).sort(() => Math.random() - 0.5)
+    const demoItems: Item[] = [{ id: crypto.randomUUID(), prompt: 'Match the pairs:', answer: [], pairs }]
+    editor.createShape({ type: 'matching', x: center.x - 250, y: center.y - 150, props: { w: 500, h: 300, items: demoItems, currentIndex: 0, matchedPairs: {}, shuffledRight } })
+  }
+
   return (
     <>
       {toast && (
@@ -257,18 +249,20 @@ function BoardUI({ isTeacher, setIsTeacher }: { isTeacher: boolean, setIsTeacher
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
             <button onClick={addMultiChoice} style={{ padding: '0 12px', height: '100%', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Multi Choice</button>
             <button onClick={addFillBlank} style={{ padding: '0 12px', height: '100%', backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Fill Blank</button>
+            <button onClick={addMatching} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Matching</button>
             <button onClick={addRichText} style={{ padding: '0 12px', height: '100%', backgroundColor: '#14b8a6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Reading</button>
             
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
             <button onClick={() => imageInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#ec4899', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Image</button>
             <button onClick={() => pdfInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ PDF</button>
             <button onClick={() => audioInputRef.current?.click()} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>+ Audio</button>
-            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAddAudio} style={{ display: 'none' }} />
+            
             <input type="file" accept="image/*" ref={imageInputRef} onChange={handleAddImage} style={{ display: 'none' }} />
             <input type="file" accept="application/pdf" ref={pdfInputRef} onChange={handleAddPdf} style={{ display: 'none' }} />
+            <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAddAudio} style={{ display: 'none' }} />
 
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
-            <button onClick={() => setIsAiOpen(true)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>✨ AI Import</button>
+            <button onClick={() => setIsAiOpen(true)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#a855f7', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>✨ AI Import</button>
             
             <div style={{ width: '1px', height: '24px', backgroundColor: '#e5e7eb', margin: '0 4px' }} />
             <button onClick={() => handleExport(false)} style={{ padding: '0 12px', height: '100%', backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', fontSize: '12px' }}>Export ZIP</button>
