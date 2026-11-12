@@ -1,75 +1,56 @@
-# React + TypeScript + Vite
+# 🧠 Lucid Board
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Lucid Board** is a modern, client-first interactive whiteboard designed for language learning and tutoring. It allows teachers to create complex, interactive exercises on an infinite canvas, share them with students, and track their progress.
 
-Currently, two official plugins are available:
+Built on top of [tldraw](https://tldraw.dev/) and React, it combines the freedom of a whiteboard with the structure of a learning management system.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## ✨ Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **🎨 Infinite Canvas:** Powered by `tldraw` v5. Add text, images, PDF pages, and audio anywhere.
+- **🧩 Interactive Exercises:**
+  - **Multiple Choice:** Select the correct option with instant feedback.
+  - **Fill in the Blank:** Type the missing words (supports multiple correct answers).
+  - **Matching:** Connect pairs of words or concepts.
+  - **Rich Text (Reading):** Beautifully formatted HTML blocks for reading comprehension.
+  - **Audio Player:** Built-in player with transcript support.
+- **✨ AI Studio:** Generate complex exercises using ChatGPT/Claude. Paste the JSON, and the app will automatically lay out the exercises and reading texts on the board.
+- **👨‍🏫 Role Separation:**
+  - **Teacher Mode:** Full control over the board, exercise editing, and AI generation.
+  - **Student Mode:** Locks the canvas to prevent accidental edits (Anti-cheat). Students can only interact with exercises.
+- **📦 Offline-First & Export:** 
+  - All data is stored locally in the browser (`IndexedDB`).
+  - Boards and progress can be exported/imported as `.zip` archives (including images and audio).
+- **📡 Live P2P Session (WebSocket):** Connect a teacher and a student in real-time using a 6-character room code to see each other's changes instantly.
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠 Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+**Frontend:**
+- React 19 + Vite
+- TypeScript
+- tldraw (Canvas engine)
+- Dexie (IndexedDB wrapper for offline storage)
+- fflate (ZIP compression)
+- pdfjs-dist (PDF rendering)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+**Backend (Live Mode Only):**
+- Node.js
+- `ws` (WebSocket server for real-time sync)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+---
 
-```
+## 🚀 Getting Started
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+### Prerequisites
+- Node.js (v20+ recommended)
+- npm
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+### 1. Installation (Frontend)
+Clone the repository and install dependencies:
+```bash
+git clone https://github.com/JorekTheOrc/lucid-board.git
+cd lucid-board
+npm install
